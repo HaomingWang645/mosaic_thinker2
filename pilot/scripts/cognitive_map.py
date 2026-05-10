@@ -401,10 +401,11 @@ def main():
     ax.set_ylabel("Y (m)")
     ax.set_title("Cognitive (BEV) semantic map\nfrom VGGT-reconstructed scene + GroundingDINO/SAM lift",
                  fontsize=12)
-    ax.legend(loc="upper right", fontsize=8, markerscale=2,
+    ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0),
+              fontsize=8, markerscale=2, frameon=True, borderaxespad=0.0,
               ncol=1).set_zorder(7)
     fig.tight_layout()
-    fig.savefig(FIG_DIR / "cognitive_map.png", dpi=150)
+    fig.savefig(FIG_DIR / "cognitive_map.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
     # 6a. Paper-style "Visual Prompt" 3-panel figure
