@@ -26,8 +26,9 @@ import matplotlib.patches as patches
 
 
 DEFAULT_QUERIES = [
-    "couch", "chair", "table", "bed", "tv", "lamp", "pillow", "blanket",
+    "couch", "sofa", "chair", "table", "bed", "tv", "lamp", "pillow", "blanket",
     "cabinet", "bookshelf", "rug", "window", "door", "plant",
+    "stove", "refrigerator", "oven", "microwave", "sink", "toilet", "desk",
 ]
 
 

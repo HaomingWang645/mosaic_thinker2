@@ -1,0 +1,153 @@
+{
+  "n_total": 18,
+  "n_rough_match_or_match": 10,
+  "n_mismatch": 8,
+  "n_unanswerable_with_current_map": 0,
+  "predicted_room_extent_m2": 4.31,
+  "results": [
+    {
+      "kind": "object_counting",
+      "question": "How many table(s) are in this room?",
+      "gt": "4",
+      "pred": 1,
+      "verdict": "undercount",
+      "note": "our pipeline emits one bbox per label; instance-level count needs per-instance segmentation"
+    },
+    {
+      "kind": "object_counting",
+      "question": "How many chair(s) are in this room?",
+      "gt": "2",
+      "pred": 1,
+      "verdict": "undercount",
+      "note": "our pipeline emits one bbox per label; instance-level count needs per-instance segmentation"
+    },
+    {
+      "kind": "object_size_estimation",
+      "question": "What is the length of the longest dimension (length, width, or height) of the stove, measured in centimeters?",
+      "gt": "62",
+      "pred": 71.0,
+      "verdict": "rough_match",
+      "note": "BEV-longest-dim only; full size needs z extent (avail in PLY)"
+    },
+    {
+      "kind": "object_size_estimation",
+      "question": "What is the length of the longest dimension (length, width, or height) of the sofa, measured in centimeters?",
+      "gt": "173",
+      "pred": 70.0,
+      "verdict": "mismatch",
+      "note": "BEV-longest-dim only; full size needs z extent (avail in PLY)"
+    },
+    {
+      "kind": "object_size_estimation",
+      "question": "What is the length of the longest dimension (length, width, or height) of the tv, measured in centimeters?",
+      "gt": "91",
+      "pred": 34.0,
+      "verdict": "mismatch",
+      "note": "BEV-longest-dim only; full size needs z extent (avail in PLY)"
+    },
+    {
+      "kind": "room_size_estimation",
+      "question": "What is the size of this room (in square meters)? \nIf multiple rooms are shown, estimate the size of the combined space.",
+      "gt": "26.4",
+      "pred": 4.31,
+      "verdict": "mismatch",
+      "note": "our 22-frame BEV bbox covers only a fragment of the room; fuller coverage requires more video frames as VGGT input"
+    },
+    {
+      "kind": "object_abs_distance",
+      "question": "Measuring from the closest point of each object, what is the distance between the sofa and the stove (in meters)?",
+      "gt": "2.9",
+      "pred": 1.66,
+      "verdict": "mismatch",
+      "note": "centroid-to-centroid distance (couch \u2194 stove); GT uses closest-point"
+    },
+    {
+      "kind": "object_abs_distance",
+      "question": "Measuring from the closest point of each object, what is the distance between the tv and the stove (in meters)?",
+      "gt": "2.9",
+      "pred": 1.63,
+      "verdict": "mismatch",
+      "note": "centroid-to-centroid distance (tv \u2194 stove); GT uses closest-point"
+    },
+    {
+      "kind": "object_abs_distance",
+      "question": "Measuring from the closest point of each object, what is the distance between the tv and the sofa (in meters)?",
+      "gt": "2.1",
+      "pred": 0.82,
+      "verdict": "mismatch",
+      "note": "centroid-to-centroid distance (tv \u2194 couch); GT uses closest-point"
+    },
+    {
+      "kind": "object_rel_direction_hard",
+      "question": "If I am standing by the stove and facing the sofa, is the tv to my front-left, front-right, back-left, or back-right?\nThe directions refer to the quadrants of a Cartesian plane (if I am standing at the origin and facing along the positive y-axis).",
+      "gt": "A",
+      "pred": "front-left",
+      "verdict": "match",
+      "note": "prompt: at stove facing couch, asking about tv. pred=front-left, GT=front-left"
+    },
+    {
+      "kind": "object_rel_direction_hard",
+      "question": "If I am standing by the stove and facing the tv, is the sofa to my front-left, front-right, back-left, or back-right?\nThe directions refer to the quadrants of a Cartesian plane (if I am standing at the origin and facing along the positive y-axis).",
+      "gt": "B",
+      "pred": "front-right",
+      "verdict": "match",
+      "note": "prompt: at stove facing tv, asking about couch. pred=front-right, GT=front-right"
+    },
+    {
+      "kind": "object_rel_direction_hard",
+      "question": "If I am standing by the sofa and facing the stove, is the tv to my front-left, front-right, back-left, or back-right?\nThe directions refer to the quadrants of a Cartesian plane (if I am standing at the origin and facing along the positive y-axis).",
+      "gt": "C",
+      "pred": "front-right",
+      "verdict": "match",
+      "note": "prompt: at couch facing stove, asking about tv. pred=front-right, GT=front-right"
+    },
+    {
+      "kind": "object_rel_direction_medium",
+      "question": "If I am standing by the stove and facing the sofa, is the tv to my left, right, or back?\nAn object is to my back if I would have to turn at least 135 degrees in order to face it.",
+      "gt": "C",
+      "pred": "left",
+      "verdict": "match",
+      "note": "prompt: at stove facing couch, asking about tv. pred=left, GT=left"
+    },
+    {
+      "kind": "object_rel_direction_medium",
+      "question": "If I am standing by the stove and facing the tv, is the sofa to my left, right, or back?\nAn object is to my back if I would have to turn at least 135 degrees in order to face it.",
+      "gt": "A",
+      "pred": "right",
+      "verdict": "match",
+      "note": "prompt: at stove facing tv, asking about couch. pred=right, GT=right"
+    },
+    {
+      "kind": "object_rel_direction_medium",
+      "question": "If I am standing by the sofa and facing the stove, is the tv to my left, right, or back?\nAn object is to my back if I would have to turn at least 135 degrees in order to face it.",
+      "gt": "B",
+      "pred": "right",
+      "verdict": "match",
+      "note": "prompt: at couch facing stove, asking about tv. pred=right, GT=right"
+    },
+    {
+      "kind": "object_rel_direction_easy",
+      "question": "If I am standing by the stove and facing the sofa, is the tv to the left or the right of the sofa?",
+      "gt": "A",
+      "pred": "left",
+      "verdict": "match",
+      "note": "prompt: at stove facing couch, asking about tv. pred=left, GT=left"
+    },
+    {
+      "kind": "object_rel_direction_easy",
+      "question": "If I am standing by the stove and facing the tv, is the sofa to the left or the right of the tv?",
+      "gt": "B",
+      "pred": "right",
+      "verdict": "match",
+      "note": "prompt: at stove facing tv, asking about couch. pred=right, GT=right"
+    },
+    {
+      "kind": "object_rel_direction_easy",
+      "question": "If I am standing by the sofa and facing the stove, is the tv to the left or the right of the stove?",
+      "gt": "B",
+      "pred": "right",
+      "verdict": "match",
+      "note": "prompt: at couch facing stove, asking about tv. pred=right, GT=right"
+    }
+  ]
+}

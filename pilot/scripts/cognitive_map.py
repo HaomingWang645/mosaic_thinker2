@@ -78,37 +78,62 @@ def fit_plane(points, n_iter=600, tol=0.03, rng_seed=0):
     return n_refined, d_refined, best_inl
 
 
-def find_floor_normal(pts_all):
-    """Auto-detect which axis is approximately 'down' and pick the floor.
+def gravity_from_cameras(cam_centers, cam_extr):
+    """Estimate world gravity (= floor normal) from the camera trajectory.
 
-    The floor is the largest near-horizontal plane near the bottom of the
-    scene. We try each axis as a candidate height-axis and keep the fit with
-    the most inliers."""
-    var = pts_all.var(0)
-    cand_height = np.argsort(var)   # smallest variance axis ~ vertical compression
-    # Take points in the lowest 30% of each candidate axis, RANSAC-fit a plane,
-    # pick the one with the most inliers and a normal close to the candidate axis.
-    best = None
-    for ax in cand_height[:2]:
-        thresh = np.percentile(pts_all[:, ax], 35)
-        cand = pts_all[pts_all[:, ax] < thresh]
-        if len(cand) < 1000: continue
-        sub = cand[np.random.default_rng(0).choice(len(cand), min(20000, len(cand)), replace=False)]
-        n, d, inl = fit_plane(sub, n_iter=400, tol=0.04)
-        # Normal should point along the height axis (sign-agnostic).
-        align = abs(n[ax])
-        score = inl.sum() * align
-        if best is None or score > best["score"]:
-            best = dict(score=score, normal=n, d=d, inl=inl, ax=ax, sub=sub)
-    n = best["normal"]
-    # Make 'up' direction consistent: floor normal should point AWAY from the
-    # mean scene point (i.e. into the room).
-    mean_pt = pts_all.mean(0)
-    # If the floor plane's signed distance to the scene mean is negative
-    # along n, flip n so 'up' is positive.
-    if n.dot(mean_pt - (-best["d"] * n)) < 0:
-        n = -n; best["d"] = -best["d"]
-    return n, best["d"], best["sub"], best["inl"]
+    Two complementary signals:
+
+    A) PCA on camera centers. In a handheld indoor video the operator mostly
+       walks/turns in a roughly horizontal plane; the camera positions span
+       a thin pancake whose *thinnest* direction is gravity.
+
+    B) The OpenCV camera frame's `+Y` is image-down. When the camera is held
+       roughly upright, `R.T @ [0,1,0]` (in world coords) is approximately
+       gravity. Averaging across all frames cancels per-frame tilt.
+
+    We blend the two by averaging their normalized vectors with sign aligned.
+    Returns a unit vector pointing in the +up direction of the world.
+    """
+    # ---- Signal A: PCA on camera centers ----
+    centered = cam_centers - cam_centers.mean(0)
+    cov = (centered.T @ centered) / max(1, len(centered) - 1)
+    evals, evecs = np.linalg.eigh(cov)              # ascending
+    pca_up = evecs[:, 0]                            # smallest variance direction
+    # ---- Signal B: average of cam_+Y in world ----
+    ys_world = []
+    for ext in cam_extr:
+        R = ext[:, :3]                              # world->cam
+        ys_world.append(R.T @ np.array([0.0, 1.0, 0.0]))
+    cam_y_avg = np.mean(ys_world, axis=0)
+    cam_y_avg = cam_y_avg / (np.linalg.norm(cam_y_avg) + 1e-9)
+    # Image-+Y is *down*, so world-up ≈ -cam_y_avg
+    cam_up = -cam_y_avg
+    # ---- Align signs and blend ----
+    if pca_up @ cam_up < 0:
+        pca_up = -pca_up
+    up = (pca_up + cam_up) / 2
+    up = up / (np.linalg.norm(up) + 1e-9)
+    print(f"  gravity from PCA(cam centers): {pca_up.round(3)}  "
+          f"(eigvals: {evals.round(3)})")
+    print(f"  gravity from cam +Y avg:       {cam_up.round(3)}")
+    print(f"  blended +up world direction:   {up.round(3)}  "
+          f"(consistency: {pca_up @ cam_up:+.3f})")
+    return up
+
+
+def refine_floor_z(pts_aligned, sample=20000, tol=0.05):
+    """After rough alignment, the floor should sit at the LOWEST mode of the
+    z-distribution. Find a horizontal-ish (small |dx|, |dy| residual after
+    plane fit) thin band near the bottom and report its median z."""
+    rng = np.random.default_rng(0)
+    if len(pts_aligned) > sample:
+        pts_aligned = pts_aligned[rng.choice(len(pts_aligned), sample, replace=False)]
+    z = pts_aligned[:, 2]
+    z_floor_guess = np.percentile(z, 5)
+    band = pts_aligned[np.abs(z - z_floor_guess) < 0.30]
+    if len(band) > 100:
+        return float(np.median(band[:, 2]))
+    return float(z_floor_guess)
 
 
 # -------- 3. Build rigid alignment --------
@@ -183,7 +208,8 @@ def merge_label_aliases(label_names):
     canon = {}
     base_vocab = {"chair", "couch", "sofa", "table", "bed", "tv", "lamp", "pillow",
                   "blanket", "cabinet", "bookshelf", "rug", "window", "door",
-                  "plant"}
+                  "plant", "stove", "refrigerator", "oven", "microwave",
+                  "sink", "toilet", "desk"}
     alias = {"sofa": "couch"}
     for name in label_names:
         words = re.findall(r"[a-z]+", name.lower())
@@ -214,25 +240,26 @@ def main():
     pts_all = pts_all[keep]; col_all = col_all[keep]
     print(f"Scene cloud: {len(pts_all):,} pts after top-50%-conf filter")
 
-    # 2. Floor plane.
-    n_floor, d_floor, floor_sub, inl = find_floor_normal(pts_all)
-    print(f"Floor normal: {n_floor}  ||  d = {d_floor:.3f}  ||  inliers used: {inl.sum()}")
-
-    # 3. Alignment.
-    R = alignment_from_floor(n_floor)
-    # Translate so the floor's mean projects to z=0.
-    floor_pts_aligned = (R @ floor_sub[inl].T).T
-    z_floor = float(np.median(floor_pts_aligned[:, 2]))
-    pts_aligned = (R @ pts_all.T).T - np.array([0, 0, z_floor])
-
-    # Camera positions (extrinsic = world->cam) -> camera centers in world.
+    # 2. Gravity direction. Estimate from cameras (more robust than RANSAC
+    #    on a noisy point cloud where walls can masquerade as the floor).
+    print("Estimating gravity from camera trajectory + camera-frame +Y…")
     cams_world = []
     for i in range(len(d["names"])):
         Rwc = d["extr"][i, :, :3]; t = d["extr"][i, :, 3]
         c = -Rwc.T @ t
         cams_world.append(c)
     cams_world = np.array(cams_world)
-    cams_aligned = (R @ cams_world.T).T - np.array([0, 0, z_floor])
+    up_world = gravity_from_cameras(cams_world, d["extr"])
+
+    # 3. Alignment: rotate so up_world -> +Z.
+    R = alignment_from_floor(up_world)
+    pts_rough = (R @ pts_all.T).T
+    cams_rough = (R @ cams_world.T).T
+    # Refine z=0 to the floor: lowest stable z-mode of the rotated cloud.
+    z_floor = refine_floor_z(pts_rough)
+    print(f"  z-offset (floor median z) after rotation: {z_floor:+.3f} m")
+    pts_aligned = pts_rough - np.array([0, 0, z_floor])
+    cams_aligned = cams_rough - np.array([0, 0, z_floor])
 
     # Semantic points.
     sem = (R @ d["sem_pts"].T).T - np.array([0, 0, z_floor])
@@ -261,42 +288,44 @@ def main():
 
     print(f"Canonical labels with >=80 BEV points: {list(canon_pts.keys())}")
 
-    # Per-label cluster cleanup: largest DBSCAN cluster, then percentile
-    # trimming on the BEV plane to suppress over-segmented walls / floors.
+    # Per-label cleanup: try sklearn DBSCAN to keep largest cluster, then
+    # percentile-trim the BEV. Falls back to percentile-only if sklearn missing.
+    try:
+        from sklearn.cluster import DBSCAN
+        have_sk = True
+    except ImportError:
+        have_sk = False
     clusters = {}
     for k, pts in canon_pts.items():
         xy = pts[:, :2]
-        # Largest connected component
-        clouds = label_clusters(xy, np.zeros(len(xy), dtype=int), [k],
-                                eps=0.20, min_pts=40)
-        if k in clouds and len(clouds[k]) > 50:
-            keep_xy = clouds[k]
-            # Match back to the 3D points (cheap KD lookup on xy uniqueness)
-            mask = np.zeros(len(xy), dtype=bool)
-            ix = {tuple(np.round(p, 6)): i for i, p in enumerate(xy)}
-            for p in keep_xy:
-                key = tuple(np.round(p, 6))
-                if key in ix:
-                    mask[ix[key]] = True
-            pts_keep = pts[mask] if mask.any() else pts
+        if have_sk and len(xy) > 100:
+            db = DBSCAN(eps=0.25, min_samples=40, n_jobs=-1).fit(xy)
+            lbs = db.labels_
+            uniq, cts = np.unique(lbs[lbs >= 0], return_counts=True)
+            if len(uniq):
+                keep_id = uniq[np.argmax(cts)]
+                pts_keep = pts[lbs == keep_id]
+            else:
+                pts_keep = pts
         else:
             pts_keep = pts
-        # Percentile trim 2-98% on each axis to drop tail noise.
+        # Percentile trim 5-95% on each axis to drop tail noise / partial views.
         xy = pts_keep[:, :2]
         if len(xy) < 5:
             continue
-        lo, hi = np.percentile(xy, [3, 97], axis=0)
+        lo, hi = np.percentile(xy, [5, 95], axis=0)
         in_box = ((xy[:, 0] > lo[0]) & (xy[:, 0] < hi[0]) &
                   (xy[:, 1] > lo[1]) & (xy[:, 1] < hi[1]))
         pts_keep = pts_keep[in_box]
         if len(pts_keep) >= 80:
             clusters[k] = pts_keep
-    # Drop labels that ended up impossibly large (likely wall over-segmentation).
+    # Drop labels that ended up impossibly large after cleanup (full-room wall).
+    # 4 m diagonal allows a sofa or large table; reject anything bigger.
     for k in list(clusters):
         xy = clusters[k][:, :2]
         diag = np.linalg.norm(xy.max(0) - xy.min(0))
-        if diag > 2.5:
-            print(f"  drop label {k!r}: diag {diag:.2f} m too large (wall over-seg)")
+        if diag > 4.0:
+            print(f"  drop label {k!r}: diag {diag:.2f} m too large (over-seg)")
             del clusters[k]
 
     # 5. Render the cognitive map.
@@ -464,7 +493,7 @@ def main():
             "x": [round(float(xs.min()), 3), round(float(xs.max()), 3)],
             "y": [round(float(ys.min()), 3), round(float(ys.max()), 3)],
         },
-        "floor_normal_world": [round(float(x), 4) for x in n_floor],
+        "up_world_direction": [round(float(x), 4) for x in up_world],
         "z_offset_m": round(z_floor, 3),
         "camera_trajectory_xy_m": [
             [round(float(c[0]), 3), round(float(c[1]), 3)] for c in cams_aligned
