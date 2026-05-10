@@ -183,29 +183,19 @@ def figE_confidence_overlay():
 
 
 def figF_consistency_overlay():
-    """Pick two frames, lift their RoMa-matched points into 3D under each
-    method, draw the matched 3D points and the connecting segments to
-    visualize cross-view alignment quality."""
-    pair_names = ("frame_0067.png", "frame_0117.png")  # broadly different views
-    d_v = load(METHOD)
-    d_b = load(BASELINE)
+    """Two pairs (adjacent + far) lifted into 3D under each method; matched
+    3D points joined by segments. Tighter clusters / shorter segments = better
+    cross-view alignment."""
+    pairs_data = [
+        ("frame_0067.png", "frame_0070.png", "outputs/cached_matches_0067_0070.npz", "Adjacent pair"),
+        ("frame_0067.png", "frame_0117.png", "outputs/cached_matches_67_117.npz", "Far pair (stress test)"),
+    ]
+    d_v = load(METHOD); d_b = load(BASELINE)
 
-    i_v = d_v["names"].index(pair_names[0]); j_v = d_v["names"].index(pair_names[1])
-    i_b = d_b["names"].index(pair_names[0]); j_b = d_b["names"].index(pair_names[1])
-
-    img_i = Image.open(FRAMES / pair_names[0])
-    img_j = Image.open(FRAMES / pair_names[1])
-
-    # Load pre-cached RoMa matches (run separately on GPU).
-    cached = np.load("outputs/cached_matches_67_117.npz")
-    kpi = cached["kpi"]; kpj = cached["kpj"]; cert = cached["cert"]
-    keep = cert > 0.5
-    kpi = kpi[keep]; kpj = kpj[keep]
-
-    def lift(method, fi_idx, fj_idx, kpi, kpj):
+    def lift(method, fi_idx, fj_idx, kpi, kpj, img_i_, img_j_):
         Hp, Wp = method["pts"].shape[1:3]
-        Hi, Wi = img_i.height, img_i.width
-        Hj, Wj = img_j.height, img_j.width
+        Hi, Wi = img_i_.height, img_i_.width
+        Hj, Wj = img_j_.height, img_j_.width
         sxi, syi = Wp / Wi, Hp / Hi
         sxj, syj = Wp / Wj, Hp / Hj
         xi = np.clip(np.rint(kpi[:, 0] * sxi).astype(int), 0, Wp - 1)
@@ -217,27 +207,35 @@ def figF_consistency_overlay():
         ok = np.isfinite(pi).all(-1) & np.isfinite(pj).all(-1)
         return pi[ok], pj[ok]
 
-    pi_v, pj_v = lift(d_v, i_v, j_v, kpi, kpj)
-    pi_b, pj_b = lift(d_b, i_b, j_b, kpi, kpj)
+    fig, axes = plt.subplots(2, 2, figsize=(14, 11))
+    for r, (n_a, n_b, cache, label) in enumerate(pairs_data):
+        i_v = d_v["names"].index(n_a); j_v = d_v["names"].index(n_b)
+        i_b = d_b["names"].index(n_a); j_b = d_b["names"].index(n_b)
+        img_i = Image.open(FRAMES / n_a); img_j = Image.open(FRAMES / n_b)
+        cached = np.load(cache)
+        kpi = cached["kpi"]; kpj = cached["kpj"]; cert = cached["cert"]
+        keep = cert > 0.5
+        kpi = kpi[keep]; kpj = kpj[keep]
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-    for ax, (pi, pj), title in [
-        (axes[0], (pi_v, pj_v), f"VGGT  (median Δ = {np.median(np.linalg.norm(pi_v-pj_v, axis=1))*1000:.1f} mm)"),
-        (axes[1], (pi_b, pj_b), f"Baseline  (median Δ = {np.median(np.linalg.norm(pi_b-pj_b, axis=1))*1000:.1f} mm)"),
-    ]:
-        # height axis = lowest variance among union
-        u = np.vstack([pi, pj])
-        h = int(u.var(0).argmin())
-        a, b = [x for x in [0, 1, 2] if x != h]
-        for k in range(min(80, len(pi))):
-            ax.plot([pi[k, a], pj[k, a]], [pi[k, b], pj[k, b]], "k-", lw=0.5, alpha=0.3)
-        ax.scatter(pi[:, a], pi[:, b], s=12, c="C0", label=pair_names[0], alpha=0.7)
-        ax.scatter(pj[:, a], pj[:, b], s=12, c="C3", label=pair_names[1], alpha=0.7)
-        ax.set_aspect("equal"); ax.legend(); ax.grid(alpha=0.3)
-        ax.set_title(title, fontsize=11)
-        ax.set_xlabel(f"axis {a} (m)"); ax.set_ylabel(f"axis {b} (m)")
-    fig.suptitle("Cross-view alignment of 400 RoMa-matched points\n"
-                 "Each black line connects a pair of pixels that should map to the same world point", fontsize=12)
+        pi_v, pj_v = lift(d_v, i_v, j_v, kpi, kpj, img_i, img_j)
+        pi_b, pj_b = lift(d_b, i_b, j_b, kpi, kpj, img_i, img_j)
+
+        for ax, (pi, pj), title in [
+            (axes[r, 0], (pi_v, pj_v), f"VGGT  ({label})\nmedian Δ = {np.median(np.linalg.norm(pi_v-pj_v, axis=1))*1000:.1f} mm"),
+            (axes[r, 1], (pi_b, pj_b), f"Baseline  ({label})\nmedian Δ = {np.median(np.linalg.norm(pi_b-pj_b, axis=1))*1000:.1f} mm"),
+        ]:
+            u = np.vstack([pi, pj])
+            h = int(u.var(0).argmin())
+            ax_a, ax_b = [x for x in [0, 1, 2] if x != h]
+            for k in range(min(80, len(pi))):
+                ax.plot([pi[k, ax_a], pj[k, ax_a]], [pi[k, ax_b], pj[k, ax_b]], "k-", lw=0.5, alpha=0.3)
+            ax.scatter(pi[:, ax_a], pi[:, ax_b], s=12, c="C0", label=n_a, alpha=0.7)
+            ax.scatter(pj[:, ax_a], pj[:, ax_b], s=12, c="C3", label=n_b, alpha=0.7)
+            ax.set_aspect("equal"); ax.legend(fontsize=9); ax.grid(alpha=0.3)
+            ax.set_title(title, fontsize=10)
+            ax.set_xlabel(f"axis {ax_a} (m)"); ax.set_ylabel(f"axis {ax_b} (m)")
+    fig.suptitle("Cross-view alignment of 400 RoMa-matched points (top = adjacent pair, bottom = far pair)\n"
+                 "Each black line connects a pair of pixels that should map to the same world point — shorter is better", fontsize=12)
     fig.tight_layout(); fig.savefig(FIG_DIR / "F_consistency_overlay.png", dpi=130)
     plt.close(fig)
     print("F_consistency_overlay.png")
