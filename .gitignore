@@ -1,0 +1,44 @@
+# External upstream clone (facebookresearch/vggt) — clone separately if needed
+vggt_repo/
+
+# Large experiment artifacts (regenerable from pilot/scripts)
+pilot/outputs/**/*.npy
+pilot/outputs/**/*.npz
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
