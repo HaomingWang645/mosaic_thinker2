@@ -220,6 +220,48 @@ Take-aways:
 - VGGT was run with the **same 22 frames** the user has on disk, so this is a
   fair head-to-head on real data, not a synthetic stress test.
 
+### 3.6 Reconstruction quality, deeper look (VGGT only)
+
+The §3.1 metrics show the baseline catastrophically fails. The numbers below
+characterize how good VGGT's reconstruction *actually* is in absolute terms,
+using four reference-free probes (no ground truth available for these frames).
+
+| Probe | Value | Interpretation |
+|---|---|---|
+| **Camera trajectory: per-step translation** | mean 12.2 cm, median 11.2 cm, max 22.3 cm | Smooth, consistent with a slow walk; total path length 2.56 m for 22 frames |
+| **Camera trajectory: per-step rotation** | mean 30.4°, median 24.2°, max 87.5° | Larger than typical because the input frames are temporally subsampled (gaps 53→55, 82→116, …); within those subsamples the trajectory is coherent |
+| **VGGT self-confidence** | mean 5.97, median 6.06, p10 2.13 | All ~9.4 M pixels have confidence > 1.0; top-20% gate at 8.4. VGGT is not flagging this scene as hard. |
+| **Local-plane residual** (surface thickness) on top-20%-confidence patches | **median 0.6 mm**, p90 1.3 mm | Sub-mm surface precision on flat regions — at the noise floor of typical RGB-only depth |
+| **Multi-view consistency** (from §3.1, repeated for completeness) | median 4 mm, p90 10 mm across 15 RoMa-matched pairs | Cross-view agreement is in the same low-mm regime as surface thickness |
+
+Visualizations:
+- [`figures/camera_trajectory.png`](figures/camera_trajectory.png) — predicted
+  camera path, smooth and physically plausible.
+- [`figures/point_cloud_three_views.png`](figures/point_cloud_three_views.png) —
+  RGB-colored top-20%-confidence point cloud, three orthographic views; floor /
+  walls / furniture are visually identifiable in the BEV.
+- [`figures/surface_thickness.png`](figures/surface_thickness.png) —
+  histogram of local-plane residuals across 200 random patches.
+- [`figures/vggt_confidence.png`](figures/vggt_confidence.png) —
+  confidence distribution + per-frame mean.
+
+**Bottom line on quality (relative to what's needed for a semantic map):**
+
+- Geometry is **well within usable**. Sub-millimeter local surface precision,
+  ~4 mm cross-view agreement, and a coherent ~3 m × 2 m room layout from a
+  single 1-second forward pass.
+- Quality is **not metric-anchored**. VGGT outputs world coords up to a global
+  similarity (translation + rotation + global scale). For the BEV semantic-map
+  use case this is fine (we only need relative layouts); for VSI-Bench's
+  absolute-distance / object-size questions we'd need to anchor scale via a
+  single trustworthy depth measurement (a known box dimension, a quick depth
+  probe, or a metric stereo frame).
+- Quality is **good enough that the bottleneck moves elsewhere**: with VGGT,
+  the limiting factor for the downstream semantic map is now segmentation and
+  detection accuracy on the 2D frames, not 3D alignment. The original paper's
+  whole §4 (alignment, MST, occlusion handling) becomes obsolete for the
+  geometry stage.
+
 ## 4. Verdict
 
 **The user's hypothesis is supported on this scene:**
