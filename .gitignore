@@ -1,9 +1,8 @@
 # External upstream clone (facebookresearch/vggt) — clone separately if needed
 vggt_repo/
 
-# Large experiment artifacts (regenerable from pilot/scripts)
-pilot/outputs/**/*.npy
-pilot/outputs/**/*.npz
+# Experiment artifacts (regenerable from pilot/scripts)
+pilot/outputs/
 
 # Python
 __pycache__/

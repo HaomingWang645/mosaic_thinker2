@@ -70,24 +70,27 @@ def parse_ply_xyz(path, max_pts=200_000):
 
 
 def obb_bev_polygon(obb):
-    """Project an oriented 3D bbox onto the X-Z (BEV) plane and return 4 (x,z)
-    corners of the resulting rotated rectangle. Pass the bbox dict directly;
-    units come from whichever field caller used (we use `obbAligned` which is
-    in METRES in the mesh frame)."""
+    """Project an oriented 3D bbox onto the BEV (X-Y) plane and return 4 (x,y)
+    corners of the resulting rotated rectangle.
+
+    Frame: `obbAligned` uses the ARKitScenes world frame with **Z = up** (every
+    annotation's normalizedAxes matrix has the form  [[a,b,0],[c,d,0],[0,0,1]],
+    confirming local-Z aligns with world-Z). So BEV = drop Z, keep X & Y.
+    """
     c = np.asarray(obb["centroid"], dtype=float)
     L = np.asarray(obb["axesLengths"], dtype=float)
     R = np.asarray(obb["normalizedAxes"], dtype=float).reshape(3, 3)
     h = L / 2
-    # Build BEV rotated rectangle: project local X and Z axes to (X, Z) plane.
-    x_axis_bev = R[[0, 2], 0]
-    z_axis_bev = R[[0, 2], 2]
-    cx_bev = c[[0, 2]]
-    hx, hz = h[0], h[2]
+    # BEV rotated rectangle: local X and Y axes projected to world X-Y.
+    x_axis_bev = R[[0, 1], 0]     # local X in world (X,Y)
+    y_axis_bev = R[[0, 1], 1]     # local Y in world (X,Y)
+    cx_bev = c[[0, 1]]
+    hx, hy = h[0], h[1]
     rect = np.array([
-        cx_bev + hx * x_axis_bev + hz * z_axis_bev,
-        cx_bev + hx * x_axis_bev - hz * z_axis_bev,
-        cx_bev - hx * x_axis_bev - hz * z_axis_bev,
-        cx_bev - hx * x_axis_bev + hz * z_axis_bev,
+        cx_bev + hx * x_axis_bev + hy * y_axis_bev,
+        cx_bev + hx * x_axis_bev - hy * y_axis_bev,
+        cx_bev - hx * x_axis_bev - hy * y_axis_bev,
+        cx_bev - hx * x_axis_bev + hy * y_axis_bev,
     ])
     return rect
 
@@ -117,11 +120,12 @@ def main():
 
     fig, ax = plt.subplots(figsize=(11.5, 8))
 
-    # Floor outline = mesh BEV scatter (thin gray) — already in metres.
-    # Filter to floor band only, so we don't see the entire ceiling/wall blob.
+    # Floor outline = mesh BEV scatter (thin gray). Z is up here, so BEV = X-Y.
+    # Take a thin slab near the floor (low Z) so we see only the room footprint.
     rng = np.random.default_rng(0)
-    floor_band = mesh_xyz[(mesh_xyz[:, 1] > -1.5) & (mesh_xyz[:, 1] < 0.05)]
-    floor_xy = floor_band[:, [0, 2]] if len(floor_band) > 5000 else mesh_xyz[:, [0, 2]]
+    z_floor = float(np.percentile(mesh_xyz[:, 2], 2))
+    floor_band = mesh_xyz[mesh_xyz[:, 2] < z_floor + 0.30]
+    floor_xy = floor_band[:, [0, 1]] if len(floor_band) > 5000 else mesh_xyz[:, [0, 1]]
     if len(floor_xy) > 30_000:
         floor_xy = floor_xy[rng.choice(len(floor_xy), 30_000, replace=False)]
     ax.scatter(floor_xy[:, 0], floor_xy[:, 1], s=0.25, c="0.6", alpha=0.5, zorder=1)
@@ -146,11 +150,11 @@ def main():
                 zorder=4)
 
     ax.set_aspect("equal"); ax.grid(alpha=0.4, linestyle=":")
-    ax.set_xlabel("X (m)  — ARKitScenes world frame, Y is up")
-    ax.set_ylabel("Z (m)")
+    ax.set_xlabel("X (m)  — ARKitScenes obbAligned frame, Z is up (dropped)")
+    ax.set_ylabel("Y (m)")
     ax.set_title("GROUND-TRUTH cognitive map — ARKitScenes scene 41069025\n"
-                 "Oriented 3D bboxes from `_3dod_annotation.json`, projected to X-Z BEV; "
-                 f"{len(objs)} GT objects",
+                 "Oriented 3D bboxes from `_3dod_annotation.json` (`obbAligned`); "
+                 f"{len(objs)} GT objects, BEV = X-Y",
                  fontsize=12)
     ax.legend(loc="upper left", bbox_to_anchor=(1.02, 1.0),
               fontsize=9, markerscale=1.0, frameon=True, borderaxespad=0.0)
@@ -209,10 +213,11 @@ def main():
                  f"BEV bbox covers ≈4.3 m²,  unanchored similarity scale", fontsize=11)
     ax.set_xlabel("X (m)"); ax.set_ylabel("Y (m)")
 
-    # --- GT (right) — both mesh and obbAligned in METRES, mesh frame ---
+    # --- GT (right) — both mesh and obbAligned in METRES, Z is up ---
     ax = axes[1]
-    floor_band = mesh_xyz[(mesh_xyz[:, 1] > -1.5) & (mesh_xyz[:, 1] < 0.05)]
-    floor_xy = floor_band[:, [0, 2]] if len(floor_band) > 5000 else mesh_xyz[:, [0, 2]]
+    z_floor = float(np.percentile(mesh_xyz[:, 2], 2))
+    floor_band = mesh_xyz[mesh_xyz[:, 2] < z_floor + 0.30]
+    floor_xy = floor_band[:, [0, 1]] if len(floor_band) > 5000 else mesh_xyz[:, [0, 1]]
     if len(floor_xy) > 30_000:
         floor_xy = floor_xy[rng.choice(len(floor_xy), 30_000, replace=False)]
     ax.scatter(floor_xy[:, 0], floor_xy[:, 1], s=0.25, c="0.6", alpha=0.45, zorder=1)
@@ -222,17 +227,21 @@ def main():
         poly = Polygon(rect_m, closed=True, facecolor=clr, edgecolor=clr,
                        alpha=0.35, linewidth=2.0, zorder=3)
         ax.add_patch(poly)
-        cx = float(rect_m[:, 0].mean()); cz = float(rect_m[:, 1].mean())
-        ax.text(cx, cz, ln, fontsize=8, ha="center", va="center", weight="bold",
+        cx = float(rect_m[:, 0].mean()); cy = float(rect_m[:, 1].mean())
+        ax.text(cx, cy, ln, fontsize=8, ha="center", va="center", weight="bold",
                 bbox=dict(boxstyle="round,pad=0.2", fc="white", ec=clr, lw=1, alpha=0.9),
                 zorder=4)
     ax.set_aspect("equal"); ax.grid(alpha=0.4, linestyle=":")
-    gt_extent_m2 = ((mesh_xyz[:, 0].max() - mesh_xyz[:, 0].min()) *
-                    (mesh_xyz[:, 2].max() - mesh_xyz[:, 2].min()))
+    # Use the floor-band footprint as the proper room area
+    if len(floor_band) > 1000:
+        gt_extent_m2 = ((floor_band[:, 0].max() - floor_band[:, 0].min()) *
+                        (floor_band[:, 1].max() - floor_band[:, 1].min()))
+    else:
+        gt_extent_m2 = float("nan")
     ax.set_title(f"GROUND TRUTH cognitive map  (ARKitScenes scene 41069025)\n"
-                 f"{len(objs)} oriented 3D bboxes (obbAligned),  mesh footprint ≈{gt_extent_m2:.1f} m²",
+                 f"{len(objs)} oriented 3D bboxes (obbAligned),  floor footprint ≈{gt_extent_m2:.1f} m²",
                  fontsize=11)
-    ax.set_xlabel("X (m)"); ax.set_ylabel("Z (m)")
+    ax.set_xlabel("X (m)"); ax.set_ylabel("Y (m)")
 
     fig.suptitle("Predicted vs GROUND TRUTH cognitive map — same scene", fontsize=14)
     fig.tight_layout()
